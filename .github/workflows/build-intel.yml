@@ -50,7 +50,7 @@ jobs:
       - name: Verify Intel architecture
         run: |
           file "dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
-          lipo -verify_arch x86_64 "dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
+          lipo "dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" -verify_arch x86_64
 
       - name: Package application
         run: |

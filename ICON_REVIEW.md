@@ -26,7 +26,9 @@ The next bundle explicitly sets version 1.0.1, minimum macOS 15.0 and Retina
 capability before signing; the changed version helps native icon cache updates.
 This is metadata only. Final Actions packaging must pass the custom `.icns` reference/byte/representation
 checks, all current conversion tests, Intel/Mach-O deployment checks and signing.
-After that build, verify the final application entry in Launchpad. A valid `.icns`
+The owner accepted the existing Finder/Dock checks and later permitted optional
+Launchpad inspection; it is not required for the remaining preparation. No further
+desktop automation is planned while Astro Bot is converting. A valid `.icns`
 or successful compile alone must not be presented as proof of its cached appearance
 in every macOS surface. The conversion engine, GUI/CLI and current test files are
 unchanged from the hardware-tested baseline `03122c76973965aaa8f72470937795ac20cd412a`.

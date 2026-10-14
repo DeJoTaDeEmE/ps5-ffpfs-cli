@@ -179,8 +179,13 @@ def main():
     (SOURCES / "SOURCE-INFO.json").write_text(json.dumps({"application_commit": commit,
         "mkpfs_commit": MKPFS, "mkpfs_source_url": url,
         "mkpfs_source_sha256": hashlib.sha256(data).hexdigest()}, indent=2) + "\n")
-    with tarfile.open(ROOT / "PS5-FFPFS-CLI-Source.tar.gz", "w:gz") as archive:
+    source_archive = ROOT / "PS5-FFPFS-CLI-Source.tar.gz"
+    with tarfile.open(source_archive, "w:gz") as archive:
         archive.add(OUT, arcname="PS5-FFPFS-CLI-Source")
+    with source_archive.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    source_archive.with_suffix(source_archive.suffix + ".sha256").write_text(
+        f"{digest}  {source_archive.name}\n")
     print(f"Collected {len(inventory)} exact package inventories, notices and source archives")
 
 

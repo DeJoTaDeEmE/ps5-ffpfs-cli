@@ -36,11 +36,19 @@ not a claim that third-party authors have granted any new exception.
 - The source repository contains the conversion engine, build recipe, dependency
   pins, reproducible tests, icon source, and complete `.icns`.
 
-The collector has been syntax-checked but has **not yet run against the final
-Actions environment**. Any missing notice or source/checksum failure must block
-publication until repaired. Final packaging should copy its `Licenses/` tree to
-`Contents/Resources/Licenses/` and publish the exact source archive alongside ZIP,
-SHA-256 and test evidence.
+The collector passed on [Actions run 38621256156](https://github.com/DeJoTaDeEmE/ps5-ffpfs-cli/actions/runs/38621256156)
+for source commit `373aef4c5d15d47dbada434f1384fd7e70cab3dd`:
+18 installed package inventories, 32 locked Rust crate inventories and the actual
+cryptography backend source, OpenSSL 4.0.0 (14 April 2026), were collected. The
+source archive SHA-256 was `875d277b666d80dc43b6199dda7fb342a589a79a84659228c7af43d15027f6aa`.
+An earlier audit failed on metadata serialization and was repaired by preserving
+raw METADATA; the successful run confirms the repaired collector.
+
+This is a **source/notices audit, not a new application build or release**. Final
+packaging must rerun the collector at the exact release commit, include its
+`Licenses/` tree in `Contents/Resources/Licenses/`, and publish the corresponding
+source archive with ZIP, SHA-256 and test evidence. Missing notices, unavailable
+source or checksum mismatches remain publication failures.
 
 ## Decision required before stable binary publication
 

@@ -138,6 +138,16 @@ See [VALIDATION.md](VALIDATION.md) for the audit, reproduction and test evidence
 
 ## Credits and licenses / Créditos y licencias
 
+**Compilación de prueba 1.0.1 RC1 / Test build:** el icono EXFAT/PFS y las protecciones
+de cierre incluyen registros persistentes en `~/Library/Logs/PS5-EXFAT-PFS-Builder/`.
+UnRAR se excluye temporalmente del ejecutable: extrae los RAR por separado y selecciona
+la carpeta del juego. Carpetas, ZIP, `.exfat` y `.ffpfsc` mantienen el motor probado.
+Consulta [TEST_BUILD.md](TEST_BUILD.md) para las pruebas y limitaciones.
+
+The protected Intel test build temporarily excludes UnRAR. Extract RAR archives
+separately; game-folder conversion to both formats retains the tested serializer.
+Persistent diagnostics and close protection are described in [TEST_BUILD.md](TEST_BUILD.md).
+
 This is a maintained fork of [bizkut/ps5-ffpfs-cli](https://github.com/bizkut/ps5-ffpfs-cli).
 The original project declares MIT for its wrapper; see [LICENSE](LICENSE).
 MkPFS is GPL-3.0; the combined binary is not covered by a blanket MIT grant.

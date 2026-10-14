@@ -71,7 +71,9 @@ The full official text is restored in `unrar/LICENSE.txt` and
 `licenses/UnRAR-LICENSE.txt`; relevant redistribution text is also retained in
 source comments. [Official source download](https://www.rarlab.com/rar_add.htm).
 
-The combination of this restricted module with GPL-licensed MkPFS needs a
+The protected 1.0.1 RC1 test executable **excludes UnRAR**; this source tree retains
+its separate source and license only. RAR users extract separately. The combination
+of this restricted module with GPL-licensed MkPFS would need a
 licensing resolution before a new stable binary is published. No applicable
 exception has been found in the audited MkPFS revision. Options are excluding
 UnRAR from the binary (users extract RAR first), or obtaining/confirming a suitable

@@ -24,6 +24,8 @@ jobs:
       PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11.9'
@@ -32,17 +34,8 @@ jobs:
         run: |
           test "$(uname -m)" = x86_64
           python -m pip install -r requirements-build.txt
-          python -m pip install ./unrar
           python -m pip check
-          python - <<'PYCODE'
-          import importlib.metadata, pathlib, shutil
-          distribution = importlib.metadata.distribution('unrar')
-          extensions = [distribution.locate_file(f) for f in distribution.files
-                        if str(f).startswith('unrar/_unrar') and str(f).endswith('.so')]
-          assert len(extensions) == 1, extensions
-          shutil.copy2(extensions[0], pathlib.Path('unrar') / extensions[0].name)
-          PYCODE
-          python -c "import unrar._unrar; from cryptography.hazmat.primitives.ciphers.aead import AESGCM"
+          python -c "from cryptography.hazmat.primitives.ciphers.aead import AESGCM"
           mkdir -p validation
           python -m pip freeze > validation/dependencies.txt
           git rev-parse HEAD > validation/application-commit.txt
@@ -50,7 +43,11 @@ jobs:
       - name: Test source pipeline
         run: |
           set -o pipefail
+          git diff --exit-code 03122c76973965aaa8f72470937795ac20cd412a -- \
+            converter.py cli.py requirements.txt requirements-build.txt tests/validate_conversion.py
+          printf '%s\n' 'Serializer, CLI, dependency pins and existing tests unchanged from hardware-tested baseline.' > validation/engine-unchanged.txt
           python tests/validate_conversion.py 2>&1 | tee validation/source-tests.log
+          python tests/test_runtime_protection.py 2>&1 | tee validation/protection-tests.log
       - name: Generate full custom macOS icon
         run: python scripts/build_icon.py
       - name: Collect corresponding source and license notices
@@ -64,7 +61,7 @@ jobs:
             --hidden-import tkinter --hidden-import mkpfs.cli \
             --hidden-import multiprocessing --collect-all customtkinter \
             --collect-all mkpfs --collect-all cryptography \
-            --collect-all zlib_ng --collect-all isal --collect-all unrar gui.py
+            --collect-all zlib_ng --collect-all isal --exclude-module unrar gui.py
       - name: Set native bundle version for icon cache updates
         run: python scripts/set_bundle_version.py
       - name: Include license notices before signing
@@ -75,6 +72,8 @@ jobs:
           test -s dist/PS5-FFPFS-CLI.app/Contents/Resources/Licenses/reference-texts/UnRAR-LICENSE.txt
       - name: Verify custom icon in application bundle
         run: python scripts/verify_bundle_icon.py
+      - name: Verify UnRAR excluded from frozen executable and resources
+        run: python scripts/verify_no_unrar.py
       - name: Verify every Mach-O architecture and deployment target
         run: |
           python - <<'PY'
@@ -105,6 +104,8 @@ jobs:
         run: |
           set -o pipefail
           "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" --dependency-test
+          python tests/validate_bundled_lifecycle.py \
+            "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
           python tests/validate_conversion.py \
             --binary "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" \
             2>&1 | tee validation/bundled-tests.log
@@ -112,6 +113,7 @@ jobs:
         run: |
           cp README.md VALIDATION.md validation/
           cp LICENSE_REVIEW.md THIRD_PARTY_NOTICES.md ICON_REVIEW.md validation/
+          cp INCIDENT_REVIEW.md TEST_BUILD.md validation/
           cp release-materials/Source/SOURCE-INFO.json validation/
           ditto -c -k --sequesterRsrc --keepParent \
             dist/PS5-FFPFS-CLI.app PS5-FFPFS-CLI-macOS-Intel.zip

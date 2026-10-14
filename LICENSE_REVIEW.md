@@ -57,8 +57,12 @@ and `.ffpfsc` conversion retain the same engine; RAR users extract first. The
 engine's files need not change. Alternatively, keep UnRAR but defer publication
 until a compatible exception or another licensing resolution is confirmed.
 
-The owner's choice is pending. No new stable binary has been published or claimed
-license-complete. Existing release assets have not been changed or deleted.
+The owner has now authorized temporarily excluding UnRAR to prioritize an Intel
+test executable with the approved icon and PR #3 protections. The workflow omits
+its native build, explicitly excludes its modules, and audits frozen archive and
+filesystem contents. Source retains separate UnRAR notices without bundling its
+executable code. No new stable binary is claimed; the next binary is a prerelease.
+Existing release assets have not been changed or deleted.
 
 ## UnRAR redistribution recheck (14 October 2026)
 
@@ -88,7 +92,8 @@ separate file alone does not establish independence. The compatibility concern
 is an assessment of this integration, not a claim that RARLAB prohibits all
 redistribution.
 
-Options for the owner, with none selected or implemented yet:
+Options assessed at the redistribution recheck (the owner subsequently authorized
+option 1 for the protected test build):
 
 1. **Publish without bundled UnRAR (recommended):** retain the proven folder,
    ZIP, exFAT and FFPFSC engine; users extract RAR archives before conversion.
@@ -106,4 +111,4 @@ No Finder, Dock, Launchpad or System Events automation is part of this review.
 The owner's running application and Astro Bot conversion are left untouched.
 Launchpad verification is no longer a release task requested by the owner;
 the existing Finder and Dock checks are accepted. Stable publication remains
-pending the owner's explicit authorization and UnRAR choice.
+pending explicit stable-release authorization. The test ZIP is separately authorized.

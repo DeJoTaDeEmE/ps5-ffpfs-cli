@@ -136,7 +136,7 @@ def main():
             continue
         directory = NOTICES / "packages" / f"{name}-{version}"
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "METADATA.txt").write_text(str(dist.metadata), encoding="utf-8")
+        (directory / "METADATA.txt").write_text(dist.read_text("METADATA") or dist.read_text("PKG-INFO") or "", encoding="utf-8")
         copied = []
         for relative in dist.files or ():
             if not is_notice(str(relative)):

@@ -655,6 +655,7 @@ class PS5ContainerBuilderApp:
 
     def _on_close(self) -> None:
         self.is_closing = True
+        self.is_cancelled = True
         if self.current_process:
             try:
                 self.current_process.terminate()

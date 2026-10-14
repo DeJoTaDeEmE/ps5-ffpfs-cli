@@ -110,6 +110,12 @@ class ConversionTests(unittest.TestCase):
             cli.convert_sources(archive, self.root / "unsafe.exfat", "exfat", run=self.run_command)
         self.assertFalse((self.root / "escaped.txt").exists())
 
+    def test_invalid_param_json_is_rejected(self):
+        (self.source / "sce_sys/param.json").write_text("[]", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            convert(self.source, self.root / "invalid.exfat", "exfat", self.run_command)
+        self.assertFalse((self.root / "invalid.exfat").exists())
+
     def test_failure_preserves_existing_output_and_source(self):
         output = self.root / "existing.ffpfsc"
         output.write_bytes(b"prior output")

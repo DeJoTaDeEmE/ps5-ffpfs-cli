@@ -24,7 +24,7 @@ ShadowMountPlus: `98c524890176c7b474fcb03387bec88c4a559861`.
   Windows/Linux builds are deferred; they are not targets of this delivery.
 - Mandatory checks inspect the PFS tree, require exactly one root `.exfat` file,
   check its compressed inode, parse actual exFAT signature/geometry, require
-  64 KiB clusters and root `eboot.bin` plus `sce_sys/param.json`.
+  512-byte sectors, 64 KiB clusters, JSON metadata and root `eboot.bin` plus `sce_sys/param.json`.
 - Full checks run `mkpfs verify`, `mkpfs unpack --deep`, compare all relative
   paths, sizes, empty directories and streaming SHA-256 against the source,
   then rehash source to detect changes during packing. Existing exFAT is also

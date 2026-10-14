@@ -83,6 +83,8 @@ def check_structure(image, output_format):
     try:
         # ExfatReader validates the actual signature, irrespective of the extension.
         reader = ExfatReader(view)
+        if reader.geometry.bytes_per_sector != 512:
+            raise ValueError("exFAT requires 512-byte logical sectors for this SMP profile")
         if reader.geometry.cluster_size != 65536:
             raise ValueError("exFAT requires 64 KiB clusters for this SMP profile")
         entries = reader.root_entries()
@@ -92,7 +94,14 @@ def check_structure(image, output_format):
         sce = root.get("sce_sys")
         if sce is None or not sce.is_dir or not any(e.name == "param.json" and not e.is_dir for e in sce.children):
             raise ValueError("sce_sys/param.json must be at the exFAT root")
+        param = next(e for e in sce.children if e.name == "param.json" and not e.is_dir)
+        if param.length > 1024 * 1024:
+            raise ValueError("param.json exceeds the supported 1 MiB metadata limit")
+        metadata = json.loads(b"".join(reader.read_file(param)).decode("utf-8"))
+        if not isinstance(metadata, dict):
+            raise ValueError("param.json must contain a JSON object")
         return {"outer_files": [inner_name] if inner_name else [], "inner_format": "exFAT",
+                "sector_bytes": reader.geometry.bytes_per_sector,
                 "cluster_bytes": reader.geometry.cluster_size, "pfs_layers": 1 if inner_name else 0,
                 "pfsc_compressed": output_format == "ffpfsc"}
     finally:

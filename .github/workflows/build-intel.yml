@@ -1,8 +1,10 @@
-
-name: Build macOS Intel x86_64
+name: Build and validate macOS Intel x86_64
 
 on:
   workflow_dispatch:
+  workflow_call:
+  push:
+    branches: ['codex/validate-single-exfat-container']
 
 permissions:
   contents: read
@@ -11,70 +13,89 @@ jobs:
   build-intel:
     runs-on: macos-15-intel
     timeout-minutes: 45
-
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      PYTHONUNBUFFERED: '1'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.11.14'
           architecture: x64
-
-      - name: Install dependencies
+      - name: Install pinned dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install pyinstaller customtkinter mkpfs
-          python -m pip install --force-reinstall --no-cache-dir --only-binary=:all: 'cryptography==45.0.7'
-          python -c "from cryptography.hazmat.primitives.ciphers.aead import AESGCM; print('Host cryptography OK')"
+          test "$(uname -m)" = x86_64
+          python -m pip install -r requirements-build.txt
           python -m pip install ./unrar
-
+          python -m pip check
+          mkdir -p validation
+          python -m pip freeze > validation/dependencies.txt
+          git rev-parse HEAD > validation/application-commit.txt
+          sw_vers > validation/runner.txt
+      - name: Test source pipeline
+        run: |
+          set -o pipefail
+          python tests/validate_conversion.py 2>&1 | tee validation/source-tests.log
       - name: Build Intel application
         run: |
-          python -m PyInstaller \
-            --noconfirm \
-            --clean \
-            --windowed \
-            --name PS5-FFPFS-CLI \
-            --hidden-import tkinter \
-            --hidden-import mkpfs.cli \
-            --hidden-import multiprocessing \
-            --hidden-import unrar \
-            --hidden-import unrar.rarfile \
-            --hidden-import unrar._unrar \
-            --collect-data customtkinter \
-            --collect-all mkpfs \
-            --collect-all cryptography \
-            --hidden-import cryptography.hazmat.bindings._rust \
-            --collect-all unrar \
-            gui.py
-
-      - name: Verify Intel architecture
+          python -m PyInstaller --noconfirm --clean --windowed \
+            --name PS5-FFPFS-CLI --target-architecture x86_64 \
+            --osx-bundle-identifier com.dejotadeeme.ps5-ffpfs-cli \
+            --hidden-import tkinter --hidden-import mkpfs.cli \
+            --hidden-import multiprocessing --collect-all customtkinter \
+            --collect-all mkpfs --collect-all cryptography \
+            --collect-all zlib_ng --collect-all isal --collect-all unrar gui.py
+      - name: Verify every Mach-O architecture and deployment target
         run: |
-          file "dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
-          lipo "dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" -verify_arch x86_64
-
-      - name: Smoke test bundled MkPFS crypto
+          python - <<'PY'
+          import pathlib, subprocess, re
+          files = []
+          for path in pathlib.Path('dist/PS5-FFPFS-CLI.app').rglob('*'):
+              if not path.is_file() or path.is_symlink():
+                  continue
+              info = subprocess.check_output(['file', '-b', str(path)], text=True)
+              if 'Mach-O' not in info:
+                  continue
+              subprocess.run(['lipo', str(path), '-verify_arch', 'x86_64'], check=True)
+              load = subprocess.check_output(['otool', '-l', str(path)], text=True)
+              for block in load.split('Load command'):
+                  if 'LC_BUILD_VERSION' in block or 'LC_VERSION_MIN_MACOSX' in block:
+                      match = re.search(r'(?:minos|version)\s+(\d+)\.(\d+)', block)
+                      if match and tuple(map(int, match.groups())) > (15, 0):
+                          raise SystemExit(f'{path} requires newer macOS: {match.group(0)}')
+              files.append(str(path))
+          assert files, 'No Mach-O files found'
+          pathlib.Path('validation/architecture.txt').write_text('\n'.join(files) + '\n')
+          PY
+      - name: Sign and validate application
         run: |
-          BIN="dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
-          echo "Checking packaged crypto libraries"
-          find "dist/PS5-FFPFS-CLI.app" -type f \( -name 'libssl*.dylib' -o -name '*_rust*.so' \) -print
-          "$BIN" --mkpfs-internal --help > /tmp/mkpfs-smoke.log 2>&1 || {
-            cat /tmp/mkpfs-smoke.log
-            echo "::error::Bundled MkPFS failed its runtime smoke test"
-            exit 1
-          }
-          head -40 /tmp/mkpfs-smoke.log
-
-      - name: Package application
+          codesign --force --deep --sign - dist/PS5-FFPFS-CLI.app
+          codesign --verify --deep --strict --verbose=2 dist/PS5-FFPFS-CLI.app
+      - name: Test actual bundled GUI and MkPFS conversions
         run: |
-          ditto -c -k --keepParent \
-            "dist/PS5-FFPFS-CLI.app" \
-            "PS5-FFPFS-CLI-macOS-Intel.zip"
-
-      - name: Upload application
-        uses: actions/upload-artifact@v4
+          set -o pipefail
+          python tests/validate_conversion.py \
+            --binary "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" \
+            2>&1 | tee validation/bundled-tests.log
+      - name: Package tested application and evidence
+        run: |
+          cp README.md VALIDATION.md dist/
+          cp -R validation dist/
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/PS5-FFPFS-CLI.app PS5-FFPFS-CLI-macOS-Intel.zip
+          shasum -a 256 PS5-FFPFS-CLI-macOS-Intel.zip > PS5-FFPFS-CLI-macOS-Intel.zip.sha256
+          ditto -c -k --keepParent validation validation-evidence.zip
+      - uses: actions/upload-artifact@v4
         with:
           name: PS5-FFPFS-CLI-macOS-Intel
-          path: PS5-FFPFS-CLI-macOS-Intel.zip
+          if-no-files-found: error
+          path: |
+            PS5-FFPFS-CLI-macOS-Intel.zip
+            PS5-FFPFS-CLI-macOS-Intel.zip.sha256
+            validation-evidence.zip
+      - name: Preserve test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-validation-logs
+          path: validation/

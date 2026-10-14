@@ -79,13 +79,33 @@ Logs, dependency versions, application commit and architecture inventory are
 published as `validation-evidence.zip`. Only a successful complete job publishes
 the application artifact. A failed run uploads diagnostics instead.
 
-## Outstanding hardware validation
+## Confirmed hardware validation (owner report)
 
-No PS5 device is available to Actions. Console detection, mount, installation,
-launch, firmware compatibility and real-game performance remain unverified.
+The owner confirmed that the macOS Intel application's current conversion engine
+successfully generated both formats for the following real setup:
+
+- Console: PS5, firmware 13.40.
+- Payloads: kstuff + ShadowMountPlus (exact payload versions not supplied).
+- Game: PPSA28002 — Ninja Gaiden: Ragebound, version 01.006.
+- `.exfat`: detected, mounted, launches and works on the console.
+- `.ffpfsc`: detected, mounted, launches and works on the console.
+
+This is a user-supplied real-hardware result, separate from GitHub Actions tests.
+It validates the reported game/setup, not all games or firmware/payload versions.
+Actions has no PS5 attached, and generated reports continue to mark individual
+images as not hardware-tested automatically. The stable release changes packaging,
+icon and documentation; `converter.py`, `cli.py`, `gui.py`, pinned conversion
+dependencies and `tests/validate_conversion.py` retain their hardware-tested code.
+
+The custom exFAT + PFS icon replaces Python's generic bundle icon. Its complete
+`.icns` is generated from the transparent square source using standard macOS icon
+representations, then checked against the bundle's icon reference and bytes.
+Automated conversion, bundled-GUI, architecture and signing checks remain release
+gates. Build and tests run on Actions, not the owner's computer.
+
 Unsigned/ad-hoc macOS signing is not Apple notarization. No Apple Silicon support
-is claimed. The references describe PFS as experimental, and older documentation
-examples must not be applied without checking current MkPFS default behavior.
+is claimed. PFS remains experimental upstream; older packaging examples must not
+be applied without checking current MkPFS behavior.
 
 ## Actions environment correction
 

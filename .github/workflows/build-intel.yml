@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   workflow_call:
   push:
-    branches: ['codex/validate-single-exfat-container']
+    branches: ['main', 'codex/validate-single-exfat-container']
 
 permissions:
   contents: read
@@ -45,15 +45,20 @@ jobs:
         run: |
           set -o pipefail
           python tests/validate_conversion.py 2>&1 | tee validation/source-tests.log
+      - name: Generate full custom macOS icon
+        run: python scripts/build_icon.py
       - name: Build Intel application
         run: |
           python -m PyInstaller --noconfirm --clean --windowed \
             --name PS5-FFPFS-CLI --target-architecture x86_64 \
+            --icon assets/PS5-FFPFS-CLI.icns \
             --osx-bundle-identifier com.dejotadeeme.ps5-ffpfs-cli \
             --hidden-import tkinter --hidden-import mkpfs.cli \
             --hidden-import multiprocessing --collect-all customtkinter \
             --collect-all mkpfs --collect-all cryptography \
             --collect-all zlib_ng --collect-all isal --collect-all unrar gui.py
+      - name: Verify custom icon in application bundle
+        run: python scripts/verify_bundle_icon.py
       - name: Verify every Mach-O architecture and deployment target
         run: |
           python - <<'PY'

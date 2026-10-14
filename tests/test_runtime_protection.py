@@ -8,7 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -76,6 +76,27 @@ class ProtectionTests(unittest.TestCase):
         self.assertEqual(calls[0].args, ("worker_exception",))
         self.assertIn("SystemExit: 2", calls[0].kwargs["traceback"])
         self.assertFalse(calls[1].kwargs["success"])
+
+    def test_log_disk_failure_does_not_raise_into_worker(self):
+        with tempfile.TemporaryDirectory(prefix="ps5-log-failure-") as tmp:
+            log = RunLog(tmp)
+            failed = Mock()
+            failed.write.side_effect = OSError(28, "synthetic disk full")
+            with patch.object(log, "stream", failed):
+                self.assertFalse(log.event("conversion_end", success=False))
+                self.assertIn("synthetic disk full", log.write_error)
+            log.close()
+
+    def test_finished_orphan_child_no_longer_blocks_close(self):
+        process = Mock(pid=123, returncode=7)
+        process.poll.return_value = 7
+        app = types.SimpleNamespace(exit_guard=ExitGuard(), is_running=False, run_log=Mock(),
+                                    current_process=process, root=Mock(), cancel_btn=Mock(),
+                                    _poll_diagnostics=Mock())
+        gui_method("_poll_diagnostics", queue=__import__("queue"), messagebox=Mock())(app)
+        self.assertIsNone(app.current_process)
+        process.stdout.close.assert_called_once()
+        app.run_log.event.assert_called_once_with("orphan_child_reaped", pid=123, returncode=7)
 
     def test_progress_persists_before_log_close(self):
         with tempfile.TemporaryDirectory(prefix="ps5-log-test-") as tmp:

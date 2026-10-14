@@ -48,6 +48,17 @@ jobs:
           printf '%s\n' 'Serializer, CLI, dependency pins and existing tests unchanged from hardware-tested baseline.' > validation/engine-unchanged.txt
           python tests/validate_conversion.py 2>&1 | tee validation/source-tests.log
           python tests/test_runtime_protection.py 2>&1 | tee validation/protection-tests.log
+          python tests/test_path_fields.py 2>&1 | tee validation/path-validation-tests.log
+      - name: Reproduce RC1 paste and validate fixed macOS widgets
+        run: |
+          set -o pipefail
+          baseline="$RUNNER_TEMP/ps5-path-baseline"
+          mkdir -p "$baseline"
+          git archive 6911cd828a8b5f2202d9bdf94124442013f47406 | tar -x -C "$baseline"
+          python tests/validate_gui_paths.py --baseline-root "$baseline" \
+            --report validation/paste-before.json 2>&1 | tee validation/paste-before.log
+          python tests/validate_gui_paths.py \
+            --report validation/paths-source.json 2>&1 | tee validation/paths-source.log
       - name: Generate full custom macOS icon
         run: python scripts/build_icon.py
       - name: Collect corresponding source and license notices
@@ -106,6 +117,8 @@ jobs:
           "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" --dependency-test
           python tests/validate_bundled_lifecycle.py \
             "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI"
+          "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" \
+            --path-test "$PWD/validation/paths-bundled.json" 2>&1 | tee validation/paths-bundled.log
           python tests/validate_conversion.py \
             --binary "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" \
             2>&1 | tee validation/bundled-tests.log
@@ -114,6 +127,7 @@ jobs:
           cp README.md VALIDATION.md validation/
           cp LICENSE_REVIEW.md THIRD_PARTY_NOTICES.md ICON_REVIEW.md validation/
           cp INCIDENT_REVIEW.md TEST_BUILD.md validation/
+          cp PATH_INPUT_REVIEW.md validation/
           cp release-materials/Source/SOURCE-INFO.json validation/
           ditto -c -k --sequesterRsrc --keepParent \
             dist/PS5-FFPFS-CLI.app PS5-FFPFS-CLI-macOS-Intel.zip

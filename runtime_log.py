@@ -22,6 +22,7 @@ class RunLog:
         self.stream = self.path.open("x", encoding="utf-8", buffering=1)
         os.chmod(self.path, 0o600)
         self.lock = threading.Lock()
+        self.write_error = None
         self.event("application_start", pid=os.getpid(), executable=sys.executable,
                    python=sys.version, platform=sys.platform)
 
@@ -29,10 +30,16 @@ class RunLog:
         row = {"time_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                "event": event, **fields}
         with self.lock:
-            self.stream.write(json.dumps(row, ensure_ascii=False) + "\n")
-            self.stream.flush()
-            if event not in {"output", "heartbeat"}:
-                os.fsync(self.stream.fileno())
+            try:
+                self.stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+                self.stream.flush()
+                if event not in {"output", "heartbeat"}:
+                    os.fsync(self.stream.fileno())
+            except (OSError, ValueError) as exc:
+                # Diagnostics must not prevent worker completion or Tk callbacks.
+                self.write_error = str(exc)
+                return False
+        return True
 
     def heartbeat(self, running, child_pid):
         self.event("heartbeat", running=running, child_pid=child_pid,
@@ -47,10 +54,16 @@ class RunLog:
 
     def close(self):
         self.event("application_exit")
-        self.stream.close()
+        try:
+            self.stream.close()
+        except OSError as exc:
+            self.write_error = str(exc)
         if hasattr(self, "fault_stream"):
             faulthandler.disable()
-            self.fault_stream.close()
+            try:
+                self.fault_stream.close()
+            except OSError as exc:
+                self.write_error = str(exc)
 
 
 class ExitGuard:

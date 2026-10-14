@@ -40,6 +40,7 @@ except ImportError:
 
 import cli
 from runtime_log import RunLog, ExitGuard
+from path_fields import bind_path_entry, validate_path, browse_initial_directory
 
 PROGRESS_LINE_RE: re.Pattern[str] = re.compile(r"\[(?P<bar>[#-]{4,})\]\s*(?P<pct>\d{1,3})%\s*(?P<label>[^\r\n]*)")
 
@@ -119,6 +120,7 @@ class PS5ContainerBuilderApp:
         self.run_log.enable_faults()
         self.exit_guard = ExitGuard()
         self.previous_signals = {}
+        self.logging_warning_shown = False
         for signum in (signal.SIGTERM, signal.SIGINT):
             self.previous_signals[signum] = signal.signal(signum, self.exit_guard.receive)
         self.root.report_callback_exception = self._report_callback_exception
@@ -152,13 +154,31 @@ class PS5ContainerBuilderApp:
         requested = self.exit_guard.pending_signal
         self.exit_guard.pending_signal = None
         if requested is not None:
-            self.run_log.event("signal_exit_request", signal=requested, blocked=self.is_running)
-            if not self.is_running:
+            worker = getattr(self, "worker_thread", None)
+            active = self.is_running or self.current_process is not None or bool(worker and worker.is_alive())
+            self.run_log.event("signal_exit_request", signal=requested, blocked=active)
+            if not active:
                 self._on_close()
                 return
             self.enqueue_log("[WARN] Exit signal blocked while conversion is active.\n")
         process = self.current_process
+        if process is not None and not self.is_running and process.poll() is not None:
+            self.run_log.event("orphan_child_reaped", pid=process.pid, returncode=process.returncode)
+            if process.stdout:
+                process.stdout.close()
+            self.current_process = None
+            process = None
+            self.cancel_btn.configure(state="disabled")
         self.run_log.heartbeat(self.is_running, process.pid if process else None)
+        error = getattr(self.run_log, "write_error", None)
+        if isinstance(error, str) and error and not self.logging_warning_shown:
+            self.logging_warning_shown = True
+            # Avoid enqueue_log here: writing the failed log again would recurse.
+            try:
+                self.log_queue.put_nowait((f"[ERROR] Persistent log cannot be written: {error}\n", "error"))
+            except queue.Full:
+                pass
+            messagebox.showerror("Logging unavailable", f"The persistent log cannot be written.\n{error}\nCheck free space and permissions. Active work has not been cancelled.")
         self.diagnostics_after_id = self.root.after(5000, self._poll_diagnostics)
 
     def _build_ui(self) -> None:
@@ -241,6 +261,7 @@ class PS5ContainerBuilderApp:
             placeholder_text="Optional: output directory or specific file path (defaults to current directory)"
         )
         self.output_entry.grid(row=1, column=1, padx=6, pady=10, sticky="ew")
+        bind_path_entry(self.output_entry, "Output destination", self._path_input_error)
 
         browse_out_btn = ctk.CTkButton(
             fields_frame,
@@ -249,6 +270,7 @@ class PS5ContainerBuilderApp:
             command=self._browse_destination
         )
         browse_out_btn.grid(row=1, column=2, padx=12, pady=10, sticky="w")
+        self.browse_output_button = browse_out_btn
 
         # Temp dir Row
         ctk.CTkLabel(fields_frame, text="Temp dir:", font=ctk.CTkFont(weight="bold")).grid(
@@ -261,6 +283,7 @@ class PS5ContainerBuilderApp:
             placeholder_text="Optional: directory for temporary PFS images (defaults to system temp)"
         )
         self.temp_dir_entry.grid(row=2, column=1, padx=6, pady=10, sticky="ew")
+        bind_path_entry(self.temp_dir_entry, "Temp dir", self._path_input_error)
         browse_temp_btn = ctk.CTkButton(
             fields_frame,
             text="Browse",
@@ -268,6 +291,7 @@ class PS5ContainerBuilderApp:
             command=self._browse_temp_dir
         )
         browse_temp_btn.grid(row=2, column=2, padx=12, pady=10, sticky="w")
+        self.browse_temp_button = browse_temp_btn
 
         # Password Field (Hidden by default)
         self.password_label = ctk.CTkLabel(fields_frame, text="Password:", font=ctk.CTkFont(weight="bold"))
@@ -406,16 +430,25 @@ class PS5ContainerBuilderApp:
             self.source_var.set(path)
 
     def _browse_destination(self) -> None:
-        initial = self.output_var.get() or str(Path(".").resolve())
+        initial = browse_initial_directory(self.output_var.get())
         path = filedialog.askdirectory(initialdir=initial)
         if path:
             self.output_var.set(path)
 
     def _browse_temp_dir(self) -> None:
-        initial = self.temp_dir_var.get() or str(Path(".").resolve())
+        initial = browse_initial_directory(self.temp_dir_var.get())
         path = filedialog.askdirectory(initialdir=initial)
         if path:
             self.temp_dir_var.set(path)
+
+    def _path_input_error(self, message):
+        self.run_log.event("path_input_error", message=message)
+        messagebox.showerror("Invalid path", message)
+
+    def _validated_path_fields(self):
+        output = validate_path(self.output_var.get(), "Output destination") or "."
+        temp = validate_path(self.temp_dir_var.get(), "Temp dir", directory=True) or None
+        return output, temp
 
     def enqueue_log(self, text: str, tag: str = "info") -> None:
         self.run_log.event("output", tag=tag, text=text)
@@ -566,9 +599,17 @@ class PS5ContainerBuilderApp:
     def _on_action(self) -> None:
         if self.is_running or self.current_process is not None:
             return
+        try:
+            output, temp_dir = self._validated_path_fields()
+        except (ValueError, RuntimeError, OSError) as exc:
+            self._path_input_error(str(exc))
+            return
         selected_source = Path(self.source_var.get().strip())
         if not selected_source.is_dir() and selected_source.suffix.lower() in {".rar", ".r00", ".001"}:
             messagebox.showinfo("Extract RAR first", "This test build excludes UnRAR.\nExtract the archive separately, then select the game folder.")
+            return
+        if self.run_log.event("logging_check") is False:
+            messagebox.showerror("Logging unavailable", f"Conversion was not started because its log cannot be written.\n{self.run_log.path}\n{self.run_log.write_error}")
             return
 
         self._clear_log()
@@ -581,10 +622,10 @@ class PS5ContainerBuilderApp:
         self.progress_label.configure(text="Initializing pack process...")
 
         # Capture all Tk values on the UI thread before starting the worker.
-        self.pack_settings = dict(source=self.source_var.get().strip(), output=self.output_var.get().strip() or ".",
+        self.pack_settings = dict(source=self.source_var.get().strip(), output=output,
                                   output_format=self.format_var.get(), batch=self.batch_var.get(),
                                   verify=self.verify_var.get(), password=self.password_var.get() or None,
-                                  temp_dir=self.temp_dir_var.get().strip() or None)
+                                  temp_dir=temp_dir)
         self.run_log.event("conversion_start", settings={k: v for k, v in self.pack_settings.items() if k != "password"})
         self.worker_thread = threading.Thread(target=self._run_pack_worker, daemon=True)
         self.worker_thread.start()
@@ -759,7 +800,12 @@ def gui_test(source, output, output_format):
 
 def launch(args=None):
     root = ctk.CTk()
-    app = PS5ContainerBuilderApp(root)
+    try:
+        app = PS5ContainerBuilderApp(root)
+    except OSError as exc:
+        messagebox.showerror("Logging unavailable", f"Cannot create persistent diagnostic logs.\n{exc}")
+        root.destroy()
+        return 1
     if args:
         if args.game_folder:
             app.source_var.set(str(Path(args.game_folder).resolve()))
@@ -828,6 +874,9 @@ def lifecycle_test(directory):
 
 if __name__ == "__main__":
     if multiprocessing.current_process().name == "MainProcess":
+        if len(sys.argv) == 3 and sys.argv[1] == "--path-test":
+            import path_ui_checks
+            sys.exit(path_ui_checks.run_checks(sys.modules[__name__], sys.argv[2]))
         if len(sys.argv) == 3 and sys.argv[1] == "--lifecycle-test":
             sys.exit(lifecycle_test(sys.argv[2]))
         if len(sys.argv) == 5 and sys.argv[1] == "--gui-test":

@@ -22,7 +22,9 @@ The owner approved the revised blue/black icon with the exact uppercase words
 
 ## Release gate
 
-Final Actions packaging must pass the custom `.icns` reference/byte/representation
+The next bundle explicitly sets version 1.0.1, minimum macOS 15.0 and Retina
+capability before signing; the changed version helps native icon cache updates.
+This is metadata only. Final Actions packaging must pass the custom `.icns` reference/byte/representation
 checks, all current conversion tests, Intel/Mach-O deployment checks and signing.
 After that build, verify the final application entry in Launchpad. A valid `.icns`
 or successful compile alone must not be presented as proof of its cached appearance

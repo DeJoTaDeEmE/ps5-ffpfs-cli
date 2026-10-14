@@ -63,6 +63,8 @@ jobs:
             --hidden-import multiprocessing --collect-all customtkinter \
             --collect-all mkpfs --collect-all cryptography \
             --collect-all zlib_ng --collect-all isal --collect-all unrar gui.py
+      - name: Set native bundle version for icon cache updates
+        run: python scripts/set_bundle_version.py
       - name: Verify custom icon in application bundle
         run: python scripts/verify_bundle_icon.py
       - name: Verify every Mach-O architecture and deployment target

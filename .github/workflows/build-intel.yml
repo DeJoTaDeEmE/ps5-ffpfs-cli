@@ -2,6 +2,11 @@ name: Build and validate macOS Intel x86_64
 
 on:
   workflow_dispatch:
+    inputs:
+      license_audit_only:
+        description: 'Collect license inventory and corresponding source without building/publishing the app'
+        type: boolean
+        default: false
   workflow_call:
   push:
     branches: ['main', 'codex/validate-single-exfat-container']
@@ -11,6 +16,7 @@ permissions:
 
 jobs:
   build-intel:
+    if: inputs.license_audit_only != true
     runs-on: macos-15-intel
     timeout-minutes: 45
     env:
@@ -113,3 +119,24 @@ jobs:
         with:
           name: failed-validation-logs
           path: validation/
+
+  license-audit:
+    if: inputs.license_audit_only == true
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.9'
+          architecture: x64
+      - name: Install audited dependency versions
+        run: python -m pip install -r requirements-build.txt
+      - name: Collect exact source, authors and notices
+        run: python scripts/prepare_release_materials.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-license-source-materials
+          path: |
+            PS5-FFPFS-CLI-Source.tar.gz
+            release-materials/Licenses/

@@ -94,5 +94,7 @@ blocked signal polling during active work and retention of worker SystemExit.
 It never initializes Tk or converts a game. GitHub Actions additionally retains
 the existing nine synthetic conversion tests. No Astro Bot conversion, original
 file operation, local app compilation, installation or stable publication is part
-of this change. Native bundled Quit/signal behavior still needs a final Actions
-binary check after the separate UnRAR licensing decision.
+of this change. The owner subsequently authorized a test build excluding UnRAR.
+The build workflow now also checks native frozen Quit/window-close/cancel/SIGTERM
+behavior on a dedicated held synthetic worker in Actions, with no real game.
+Results are recorded in validation/bundled-lifecycle.json and its persistent log.

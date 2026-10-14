@@ -10,7 +10,8 @@ if __name__ == "__main__":
         from mkpfs.cli import cli_mkpfs_main
         sys.exit(cli_mkpfs_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--dependency-test":
-        import unrar._unrar
+        import importlib.util
+        assert importlib.util.find_spec("unrar") is None, "Test bundle must exclude UnRAR"
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         import isal, zlib_ng
         sys.exit(0)
@@ -396,12 +397,8 @@ class PS5ContainerBuilderApp:
         path = filedialog.askopenfilename(
             initialdir=initial,
             filetypes=[
-                ("exFAT & RAR files", "*.exfat *.rar"),
                 ("exFAT files", "*.exfat"),
                 ("ZIP files", "*.zip"),
-                ("RAR files", "*.rar"),
-                ("RAR parts", "*.r00"),
-                ("001 files", "*.001"),
                 ("All files", "*.*"),
             ]
         )
@@ -568,6 +565,10 @@ class PS5ContainerBuilderApp:
 
     def _on_action(self) -> None:
         if self.is_running or self.current_process is not None:
+            return
+        selected_source = Path(self.source_var.get().strip())
+        if not selected_source.is_dir() and selected_source.suffix.lower() in {".rar", ".r00", ".001"}:
+            messagebox.showinfo("Extract RAR first", "This test build excludes UnRAR.\nExtract the archive separately, then select the game folder.")
             return
 
         self._clear_log()
@@ -772,8 +773,63 @@ def launch(args=None):
     return 0
 
 
+def lifecycle_test(directory):
+    """Actions-only native lifecycle test; no image or original game is processed."""
+    import json
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    messagebox.showinfo = lambda *a, **k: None
+    messagebox.showerror = lambda *a, **k: None
+    messagebox.askyesno = lambda *a, **k: False
+    root = ctk.CTk()
+    app = PS5ContainerBuilderApp(root)
+    released = threading.Event()
+    app._do_pack_work = lambda: released.wait(30)
+    app._on_action()
+    (directory / "ready.json").write_text(json.dumps({"gui_pid": os.getpid()}))
+    checks = {}
+    deadline = __import__("time").monotonic() + 25
+
+    def probe():
+        if __import__("time").monotonic() > deadline:
+            checks["timeout"] = True
+            released.set()
+            root.after(100, finish)
+            return
+        recorded_signal = any(json.loads(line).get("event") == "signal_exit_request"
+                              for line in app.run_log.path.read_text().splitlines())
+        if app.exit_guard.pending_signal is None and not recorded_signal:
+            root.after(50, probe)
+            return
+        app._poll_diagnostics()
+        checks["signal_blocked"] = app.is_running and not app.is_cancelled and bool(root.winfo_exists())
+        app._on_close()
+        checks["window_close_blocked"] = app.is_running and not app.is_cancelled and bool(root.winfo_exists())
+        root.tk.call("tk::mac::Quit")
+        checks["mac_quit_blocked"] = app.is_running and not app.is_cancelled and bool(root.winfo_exists())
+        app._on_cancel()
+        checks["declined_cancel_preserves_work"] = not app.is_cancelled
+        released.set()
+        root.after(100, finish)
+
+    def finish():
+        if app.is_running or (app.worker_thread and app.worker_thread.is_alive()):
+            root.after(100, finish)
+            return
+        checks["log_path"] = str(app.run_log.path)
+        checks["gui_pid"] = os.getpid()
+        (directory / "result.json").write_text(json.dumps(checks, indent=2))
+        app._on_close()
+
+    root.after(50, probe)
+    root.mainloop()
+    return 0 if all(checks.get(k) is True for k in ("signal_blocked", "window_close_blocked", "mac_quit_blocked", "declined_cancel_preserves_work")) else 1
+
+
 if __name__ == "__main__":
     if multiprocessing.current_process().name == "MainProcess":
+        if len(sys.argv) == 3 and sys.argv[1] == "--lifecycle-test":
+            sys.exit(lifecycle_test(sys.argv[2]))
         if len(sys.argv) == 5 and sys.argv[1] == "--gui-test":
             sys.exit(gui_test(*sys.argv[2:]))
         sys.exit(launch())

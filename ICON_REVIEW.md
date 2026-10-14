@@ -30,5 +30,7 @@ The owner accepted the existing Finder/Dock checks and later permitted optional
 Launchpad inspection; it is not required for the remaining preparation. No further
 desktop automation is planned while Astro Bot is converting. A valid `.icns`
 or successful compile alone must not be presented as proof of its cached appearance
-in every macOS surface. The conversion engine, GUI/CLI and current test files are
-unchanged from the hardware-tested baseline `03122c76973965aaa8f72470937795ac20cd412a`.
+in every macOS surface. The serializer, CLI, pins and existing conversion tests
+remain unchanged from hardware-tested baseline `03122c76973965aaa8f72470937795ac20cd412a`.
+The protected test build now changes GUI lifecycle/diagnostics and archive input
+presentation; see TEST_BUILD.md and INCIDENT_REVIEW.md.

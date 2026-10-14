@@ -16,6 +16,9 @@ ShadowMountPlus: `98c524890176c7b474fcb03387bec88c4a559861`.
 - Unknown sibling checkouts, PATH executables and automatic dependency installs
   were removed. Upstream is pinned to the audited commit. The old Intel workflow
   forced cryptography 45.0.7 despite current MkPFS requiring >=47.0.0; corrected.
+- The installed UnRAR extension is copied into its source package on Actions to
+  avoid the local package hiding the installed native module; both source and
+  bundled imports of UnRAR, crypto and compression libraries are checked.
 - The old workflow mislabeled `macos-latest` as universal without a universal
   build. Both workflow entrypoints now use tested `macos-15-intel` x86_64.
   Windows/Linux builds are deferred; they are not targets of this delivery.

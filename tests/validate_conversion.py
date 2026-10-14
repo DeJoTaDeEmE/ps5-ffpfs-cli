@@ -94,6 +94,22 @@ class ConversionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_structure(renamed, "exfat")
 
+    def test_zip_source_and_path_traversal(self):
+        import zipfile
+        archive = self.root / "game.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            for path in self.source.rglob("*"):
+                zf.write(path, "Game/" + path.relative_to(self.source).as_posix())
+        output = self.root / "archive.exfat"
+        cli.convert_sources(archive, output, "exfat", run=self.run_command)
+        report = json.loads(Path(str(output) + ".validation.json").read_text())
+        self.assertEqual(report["manifest"], self.before)
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("../escaped.txt", "unsafe")
+        with self.assertRaises(ValueError):
+            cli.convert_sources(archive, self.root / "unsafe.exfat", "exfat", run=self.run_command)
+        self.assertFalse((self.root / "escaped.txt").exists())
+
     def test_failure_preserves_existing_output_and_source(self):
         output = self.root / "existing.ffpfsc"
         output.write_bytes(b"prior output")

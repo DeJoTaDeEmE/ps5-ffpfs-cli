@@ -28,6 +28,15 @@ jobs:
           python -m pip install -r requirements-build.txt
           python -m pip install ./unrar
           python -m pip check
+          python - <<'PYCODE'
+          import importlib.metadata, pathlib, shutil
+          distribution = importlib.metadata.distribution('unrar')
+          extensions = [distribution.locate_file(f) for f in distribution.files
+                        if str(f).startswith('unrar/_unrar') and str(f).endswith('.so')]
+          assert len(extensions) == 1, extensions
+          shutil.copy2(extensions[0], pathlib.Path('unrar') / extensions[0].name)
+          PYCODE
+          python -c "import unrar._unrar; from cryptography.hazmat.primitives.ciphers.aead import AESGCM"
           mkdir -p validation
           python -m pip freeze > validation/dependencies.txt
           git rev-parse HEAD > validation/application-commit.txt
@@ -74,6 +83,7 @@ jobs:
       - name: Test actual bundled GUI and MkPFS conversions
         run: |
           set -o pipefail
+          "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" --dependency-test
           python tests/validate_conversion.py \
             --binary "$PWD/dist/PS5-FFPFS-CLI.app/Contents/MacOS/PS5-FFPFS-CLI" \
             2>&1 | tee validation/bundled-tests.log

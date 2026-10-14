@@ -9,6 +9,11 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--mkpfs-internal":
         from mkpfs.cli import cli_mkpfs_main
         sys.exit(cli_mkpfs_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "--dependency-test":
+        import unrar._unrar
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        import isal, zlib_ng
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--convert-internal":
         from cli import main
         sys.exit(main(sys.argv[2:]))

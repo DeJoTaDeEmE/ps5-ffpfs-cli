@@ -334,20 +334,24 @@ def main():
                 # Direct exFAT file to compressed PFS (.ffpfsc) conversion
                 compress_file_to_ffpfsc(item, current_ffpfs_path, mkpfs_cmd_base, mkpfs_cwd)
             else:
-                # Game folder: pack to uncompressed PFS first, then compress to .ffpfsc
-                with managed_temp_dir(args.temp_dir) as temp_dir:
-                    temp_pfs = Path(temp_dir) / "pfs_image.dat"
-                    
-                    # 1. Pack folder into the uncompressed PFS image
-                    pack_folder_uncompressed(item, temp_pfs, mkpfs_cmd_base, mkpfs_cwd, verify=args.verify)
-                    
-                    # 2. Compress that PFS image file into the final .ffpfsc
-                    compress_file_to_ffpfsc(temp_pfs, current_ffpfs_path, mkpfs_cmd_base, mkpfs_cwd)
-                    
-                    if args.keep_pfs:
-                        saved_pfs_path = current_ffpfs_path.parent / f"{title_id}_nested_pfs.dat"
-                        print(f"[INFO] Saving intermediate PFS image to {saved_pfs_path}...")
-                        shutil.copy2(temp_pfs, saved_pfs_path)
+                # MkPFS 1.1.0 default folder packing creates exactly one outer
+                # compressed PFS container holding an exFAT image. Do not wrap
+                # this result in another PFS: the previous two-pass path produced
+                # ffpfsc -> pfs_image.dat (PFSC) -> game.exfat.
+                if args.keep_pfs:
+                    print("[WARN] --keep-pfs is not applicable to direct exFAT-wrapped packing; no intermediate PFS is created.")
+                print(f"[INFO] Packing folder {item.name} directly to exFAT-wrapped {current_ffpfs_path.name}...")
+                cmd = mkpfs_cmd_base + [
+                    "pack", "folder",
+                    "--version", "PS5",
+                    "--inode-bits", "32",
+                ]
+                if args.verify:
+                    cmd.append("--verify")
+                cmd.extend([str(item), str(current_ffpfs_path)])
+                print(f"[INFO] Running: {' '.join(cmd)}")
+                subprocess.run(cmd, cwd=mkpfs_cwd, check=True)
+                print(f"[OK] Direct exFAT-wrapped container created: {current_ffpfs_path}")
                     
         print("\n[SUCCESS] All operations completed successfully!")
 

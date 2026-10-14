@@ -87,9 +87,10 @@ not claimed here.
 
 ## Validation
 
-`python tests/test_runtime_protection.py` runs seven headless regressions: blocked
+`python tests/test_runtime_protection.py` runs nine headless regressions: blocked
 close, live-child close guard, rejected cancel, signal request, persistent progress,
-abrupt exit of a dedicated tiny helper, and nonzero exit of another tiny helper.
+abrupt exit of a dedicated tiny helper, nonzero exit of another tiny helper,
+blocked signal polling during active work and retention of worker SystemExit.
 It never initializes Tk or converts a game. GitHub Actions additionally retains
 the existing nine synthetic conversion tests. No Astro Bot conversion, original
 file operation, local app compilation, installation or stable publication is part

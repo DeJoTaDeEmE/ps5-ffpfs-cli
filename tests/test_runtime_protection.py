@@ -49,6 +49,34 @@ class ProtectionTests(unittest.TestCase):
         guard.receive(signal.SIGTERM, None)
         self.assertEqual(guard.pending_signal, signal.SIGTERM)
 
+    def test_signal_poll_blocks_exit_during_work(self):
+        guard = ExitGuard()
+        guard.receive(signal.SIGTERM, None)
+        app = types.SimpleNamespace(exit_guard=guard, is_running=True, run_log=Mock(),
+                                    current_process=types.SimpleNamespace(pid=123), root=Mock(),
+                                    _on_close=Mock(), enqueue_log=Mock(), _poll_diagnostics=Mock())
+        gui_method("_poll_diagnostics")(app)
+        app._on_close.assert_not_called()
+        app.run_log.event.assert_called_once_with("signal_exit_request", signal=signal.SIGTERM, blocked=True)
+        app.root.after.assert_called_once()
+
+    def test_worker_systemexit_retains_traceback_and_failure(self):
+        import queue
+        import io
+        import traceback
+        def fail():
+            raise SystemExit(2)
+        app = types.SimpleNamespace(run_log=Mock(), _do_pack_work=fail,
+                                    is_cancelled=False, completion_queue=queue.Queue())
+        streams = types.SimpleNamespace(stdout=sys.stdout, stderr=sys.stderr)
+        gui_method("_run_pack_worker", sys=streams, queue=queue, traceback=traceback,
+                   GuiLogRedirect=lambda *a: io.StringIO())(app)
+        self.assertEqual(app.completion_queue.get_nowait(), ("Pack Process", False))
+        calls = app.run_log.event.call_args_list
+        self.assertEqual(calls[0].args, ("worker_exception",))
+        self.assertIn("SystemExit: 2", calls[0].kwargs["traceback"])
+        self.assertFalse(calls[1].kwargs["success"])
+
     def test_progress_persists_before_log_close(self):
         with tempfile.TemporaryDirectory(prefix="ps5-log-test-") as tmp:
             log = RunLog(tmp)

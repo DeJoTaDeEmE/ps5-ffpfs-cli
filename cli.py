@@ -1,27 +1,27 @@
-#!/Users/bizkut/Downloads/PS5/.venv/bin/python
+#!/usr/bin/env python3
+from __future__ import annotations
+import argparse
+import json
+import multiprocessing
+import os
+import re
+import subprocess
 import sys
+from pathlib import Path
 
-import multiprocessing as _mp
-_mp.freeze_support()  # Required for mp.Pool in PyInstaller frozen builds
-
-# Intercept if called as mkpfs sub-command in bundled mode
-if len(sys.argv) > 1 and sys.argv[1] == "--mkpfs-internal":
-    try:
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    if len(sys.argv) > 1 and sys.argv[1] == "--mkpfs-internal":
         from mkpfs.cli import cli_mkpfs_main
         sys.exit(cli_mkpfs_main(sys.argv[2:]))
-    except Exception as e:
-        print(f"[ERROR] Internal MkPFS call failed: {e}", file=sys.stderr)
-        sys.exit(1)
 
-import os
-import argparse
-import subprocess
-import shutil
-import json
-import contextlib
-import re
-import tempfile
-from pathlib import Path
+from converter import convert, prepare_source
+
+
+def safe_title_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        raise ValueError("Unsafe title ID in param.json or source name")
+    return value
 
 def get_title_id_from_name(name: str) -> str:
     # Look for standard PS4/PS5 title ID formats like PPSA12345 or CUSA12345
@@ -43,13 +43,13 @@ def get_title_id(item_path: Path) -> str:
                 with open(param_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if "titleId" in data:
-                        return data["titleId"]
+                        return safe_title_id(data["titleId"])
                     if "title_id" in data:
-                        return data["title_id"]
+                        return safe_title_id(data["title_id"])
         except Exception as e:
             print(f"[WARN] Could not parse param.json for title ID: {e}")
-            
-    return get_title_id_from_name(item_path.name)
+
+    return safe_title_id(get_title_id_from_name(item_path.name))
 
 def find_game_items(path: Path, batch: bool = False) -> list[Path]:
     if path.is_file():
@@ -58,26 +58,26 @@ def find_game_items(path: Path, batch: bool = False) -> list[Path]:
         else:
             print(f"[ERROR] Unsupported file type: {path.name}. Only .exfat files are supported.")
             sys.exit(1)
-            
+
     print(f"[INFO] Scanning for game folder(s) and .exfat file(s) in {path}...")
     valid_items = []
-    
+
     # 1. Scan for .exfat files
     for dirpath, _, filenames in os.walk(path):
         curr_dir = Path(dirpath)
         for f in filenames:
             if f.lower().endswith('.exfat'):
                 valid_items.append(curr_dir / f)
-                
+
     # 2. Scan for game folders
     for dirpath, _, _ in os.walk(path):
         curr_dir = Path(dirpath)
         eboot_path = curr_dir / "eboot.bin"
         param_path = curr_dir / "sce_sys" / "param.json"
-        
+
         if eboot_path.is_file() and param_path.is_file():
             valid_items.append(curr_dir)
-            
+
     # Deduplicate (a path could appear in both exfat and folder scans)
     seen = set()
     deduped = []
@@ -91,269 +91,87 @@ def find_game_items(path: Path, batch: bool = False) -> list[Path]:
     if len(valid_items) == 0:
         print(f"[ERROR] Could not find any valid game folders or .exfat files in {path}.")
         sys.exit(1)
-        
+
     if not batch and len(valid_items) > 1:
         print(f"[ERROR] Multiple game folders/files found in {path}:")
         for item in valid_items:
             print(f"  - {item}")
         print("Please specify a more specific folder/file or use --batch to process all.")
         sys.exit(1)
-        
+
     if not batch:
         print(f"[OK] Found game source at {valid_items[0]}")
     else:
         print(f"[OK] Found {len(valid_items)} game item(s) for batch processing.")
-        
+
     return valid_items
 
-def pack_folder_uncompressed(game_folder: Path, pfs_path: Path, mkpfs_cmd_base: list[str], mkpfs_cwd: str | None, verify: bool = False):
-    print(f"[INFO] Packing folder {game_folder.name} to uncompressed PFS image {pfs_path.name}...")
-    cmd = mkpfs_cmd_base + [
-        "pack", "folder",
-        "--no-compress",
-        "--no-adjust-output-file-extension",
-        "--version", "PS5",
-        "--inode-bits", "32"
-    ]
-    if verify:
-        cmd.append("--verify")
-    cmd.extend([str(game_folder), str(pfs_path)])
-    print(f"[INFO] Running: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=mkpfs_cwd, check=True)
-    print(f"[OK] Uncompressed PFS creation complete: {pfs_path}")
 
-def compress_file_to_ffpfsc(source_file: Path, ffpfsc_path: Path, mkpfs_cmd_base: list[str], mkpfs_cwd: str | None):
-    print(f"[INFO] Compressing {source_file.name} to outer container {ffpfsc_path.name} using MkPFS...")
-    cmd = mkpfs_cmd_base + [
-        "pack", "file",
-        "--compress",
-        "--version", "PS5",
-        "--inode-bits", "32",
-        str(source_file),
-        str(ffpfsc_path)
-    ]
-    print(f"[INFO] Running: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=mkpfs_cwd, check=True)
-    print(f"[OK] Compression complete: {ffpfsc_path}")
+def convert_sources(source, output, output_format="ffpfsc", *, batch=False,
+                    verify=True, temp_dir=None, password=None, overwrite=False,
+                    run=None, cancelled=lambda: False, confirm=None):
+    if run is None:
+        def run(command):
+            return subprocess.run(command, check=False).returncode == 0
+    source, output = Path(source).resolve(), Path(output).resolve()
+    if not source.exists():
+        raise FileNotFoundError(source)
+    from converter import guard_output
+    guard_output(source, output)
+    if temp_dir:
+        guard_output(source, Path(temp_dir))
+    with prepare_source(source, password, temp_dir) as prepared:
+        items = find_game_items(prepared, batch)
+        if batch:
+            output.mkdir(parents=True, exist_ok=True)
+        destinations = []
+        for item in items:
+            target = output / f"{get_title_id(item)}.{output_format}" if output.is_dir() else output.with_suffix("." + output_format)
+            if target in destinations:
+                raise ValueError(f"Duplicate output title ID: {target.name}")
+            destinations.append(target)
+        for item, target in zip(items, destinations):
+            if cancelled():
+                raise RuntimeError("Cancelled")
+            allow_overwrite = overwrite
+            if target.exists() and not allow_overwrite:
+                if confirm is None or not confirm(target):
+                    raise FileExistsError(f"Output exists: {target}. Choose another destination or --overwrite")
+                allow_overwrite = True
+            convert(item, target, output_format, run, verify=verify, temp_dir=temp_dir,
+                    overwrite=allow_overwrite, cancelled=cancelled)
+    return True
 
-@contextlib.contextmanager
-def managed_temp_dir(user_temp_dir: str | None = None):
-    """Create a temporary directory, optionally inside a user-specified directory."""
-    if user_temp_dir:
-        path = tempfile.mkdtemp(dir=user_temp_dir)
-        try:
-            yield Path(path)
-        finally:
-            shutil.rmtree(path)
-    else:
-        with tempfile.TemporaryDirectory() as td:
-            yield Path(td)
 
-def main():
-    parser = argparse.ArgumentParser(description="Create a compressed PFS container (.ffpfsc) enclosing a nested PFS or exFAT image from a PS5 game folder or .exfat file.")
-    parser.add_argument("game_folder", type=str, nargs='?', help="Path to the source game folder or existing .exfat file")
-    parser.add_argument("output", type=str, nargs='?', default=".", help="Path to the output .ffpfsc file or directory (defaults to current directory)")
-    parser.add_argument("--keep-pfs", action="store_true", help="Keep the intermediate nested PFS image (saved as <title_id>_nested_pfs.dat)")
-    parser.add_argument("--batch", action="store_true", help="Process multiple game folders/files into multiple images. 'output' will be treated as the output directory.")
-    parser.add_argument("--gui", action="store_true", help="Launch the graphical user interface")
-    parser.add_argument("--verify", action="store_true", help="Verify the PFS image integrity after creation (can be very slow for large files)")
-    parser.add_argument("-f", "--force", "--overwrite", dest="overwrite", action="store_true", help="Overwrite existing files without prompting")
-    parser.add_argument("--password", type=str, help="Optional password for ZIP/RAR archives")
-    parser.add_argument("--temp-dir", type=str, help="Directory for temporary PFS images during processing (defaults to system temp)")
-    
-    args = parser.parse_args()
-    
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Build raw exFAT or a single compressed PFS containing exFAT for ShadowMountPlus")
+    parser.add_argument("game_folder", nargs="?")
+    parser.add_argument("output", nargs="?", default=".")
+    parser.add_argument("--format", choices=["exfat", "ffpfsc"], default="ffpfsc")
+    parser.add_argument("--batch", action="store_true")
+    parser.add_argument("--gui", action="store_true")
+    parser.add_argument("--verify", dest="verify", action="store_true", default=True,
+                        help="Extract and compare SHA-256 (default)")
+    parser.add_argument("--no-verify", dest="verify", action="store_false",
+                        help="Skip full extraction/hashes; structure is always checked")
+    parser.add_argument("-f", "--force", "--overwrite", dest="overwrite", action="store_true")
+    parser.add_argument("--password")
+    parser.add_argument("--temp-dir")
+    args = parser.parse_args(argv)
     if args.gui:
-        try:
-            import customtkinter as ctk
-            from gui import PS5ContainerBuilderApp
-            root = ctk.CTk()
-            app = PS5ContainerBuilderApp(root)
-            if args.game_folder:
-                app.source_var.set(str(Path(args.game_folder).resolve()))
-            if args.output:
-                app.output_var.set(str(Path(args.output).resolve()))
-            if args.keep_pfs:
-                app.keep_pfs_var.set(True)
-            if args.batch:
-                app.batch_var.set(True)
-            if args.verify:
-                app.verify_var.set(True)
-            if args.temp_dir:
-                app.temp_dir_var.set(str(Path(args.temp_dir).resolve()))
-            root.mainloop()
-            sys.exit(0)
-        except ImportError:
-            print("[ERROR] GUI requires 'customtkinter'. Please install it: pip install customtkinter")
-            sys.exit(1)
-
+        from gui import launch
+        return launch(args)
     if not args.game_folder:
-        parser.print_help()
-        sys.exit(1)
-        
-    game_folder = Path(args.game_folder).resolve()
-    ffpfs_path = Path(args.output).resolve()
-    
-    if not game_folder.exists():
-        print(f"[ERROR] Source path does not exist: {game_folder}")
-        sys.exit(1)
-        
-    _is_zip = lambda p: p.name.lower().endswith(".zip")
-    _is_rar = lambda p: any(p.name.lower().endswith(ext) for ext in (".rar", ".r00"))
-    is_archive = _is_zip(game_folder) or _is_rar(game_folder)
-    
-    @contextlib.contextmanager
-    def prepare_source_path(path: Path):
-        if _is_zip(path):
-            import tempfile, zipfile
-            with tempfile.TemporaryDirectory() as tmpdir:
-                try:
-                    with zipfile.ZipFile(path) as zf:
-                        # Path traversal validation (same logic MkPFS used)
-                        for member in zf.infolist():
-                            dest = Path(tmpdir) / member.filename
-                            try:
-                                dest.resolve().relative_to(Path(tmpdir).resolve())
-                            except ValueError:
-                                print(f"[ERROR] ZIP path traversal detected: {member.filename}")
-                                sys.exit(1)
-                        zf.extractall(tmpdir, pwd=args.password.encode() if args.password else None)
-                    yield Path(tmpdir)
-                except (zipfile.BadZipFile, RuntimeError) as exc:
-                    print(f"[ERROR] ZIP extraction failed: {exc}")
-                    sys.exit(1)
-        elif _is_rar(path):
-            import tempfile
-            from unrar import rarfile
-            with tempfile.TemporaryDirectory() as tmpdir:
-                try:
-                    with rarfile.RarFile(path, pwd=args.password) as rf:
-                        rf.extractall(tmpdir)
-                    yield Path(tmpdir)
-                except rarfile.RarWrongPassword:
-                    print("[ERROR] RAR extraction failed: wrong or missing password")
-                    sys.exit(1)
-                except rarfile.BadRarFile as exc:
-                    print(f"[ERROR] RAR extraction failed: {exc}")
-                    sys.exit(1)
-                except Exception as exc:
-                    print(f"[ERROR] Failed to extract archive: {exc}")
-                    sys.exit(1)
-        else:
-            yield path
+        parser.error("a source folder/image is required")
+    try:
+        convert_sources(args.game_folder, args.output, args.format, batch=args.batch,
+                        verify=args.verify, temp_dir=args.temp_dir, password=args.password,
+                        overwrite=args.overwrite)
+    except (Exception, KeyboardInterrupt) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+    return 0
 
-    with prepare_source_path(game_folder) as active_source_path:
-        game_items = find_game_items(active_source_path, args.batch)
-        
-        if args.batch:
-            if not ffpfs_path.exists():
-                ffpfs_path.mkdir(parents=True, exist_ok=True)
-            elif not ffpfs_path.is_dir():
-                print(f"[ERROR] Output path {ffpfs_path} must be a directory when using --batch.")
-                sys.exit(1)
-        
-        # Locate MkPFS
-        mkpfs_cmd_base = None
-        mkpfs_cwd = None
-        
-        if getattr(sys, "frozen", False):
-            mkpfs_cmd_base = [sys.executable, "--mkpfs-internal"]
-            mkpfs_cwd = None
-            print("[INFO] Running in packaged/frozen environment. Using internal MkPFS bundle.")
-        
-        # 1. Prioritize any local workspace found in sibling folders containing a mkpfs package
-        if mkpfs_cmd_base is None:
-            parent_dir = Path(__file__).resolve().parent.parent
-            try:
-                for sibling in parent_dir.iterdir():
-                    if sibling.is_dir() and (sibling / "mkpfs" / "__main__.py").is_file():
-                        mkpfs_cmd_base = [sys.executable, "-m", "mkpfs"]
-                        mkpfs_cwd = str(sibling)
-                        print(f"[INFO] Using local workspace directory at {sibling}")
-                        break
-            except Exception:
-                pass
-        
-        # 2. Try system PATH
-        if mkpfs_cmd_base is None and shutil.which("mkpfs"):
-            mkpfs_cmd_base = ["mkpfs"]
-        
-        # 3. Auto-install via pip if not found
-        if mkpfs_cmd_base is None:
-            print("[INFO] MkPFS not found. Installing automatically via pip...")
-            res = subprocess.run([sys.executable, "-m", "pip", "install", "mkpfs"], capture_output=True, text=True)
-            if res.returncode != 0:
-                print("[ERROR] Failed to install mkpfs. Please install it manually: pip install mkpfs")
-                print(res.stderr)
-                sys.exit(1)
-            print("[OK] MkPFS installed successfully.")
-            mkpfs_cmd_base = [sys.executable, "-m", "mkpfs"]
-            
-        ext = ".ffpfsc"
-        
-        for item in game_items:
-            title_id = get_title_id(item)
-            
-            if args.batch or ffpfs_path.is_dir():
-                current_ffpfs_path = ffpfs_path / f"{title_id}{ext}"
-            else:
-                current_ffpfs_path = ffpfs_path.with_suffix(ext)
-            
-            if args.batch:
-                print(f"\n[INFO] --- Processing batch item: {title_id} ({item.name}) ---")
-                
-            if current_ffpfs_path.exists():
-                if args.overwrite:
-                    print(f"[WARN] Output file already exists. Overwriting: {current_ffpfs_path}")
-                    try:
-                        current_ffpfs_path.unlink()
-                    except Exception as e:
-                        print(f"[ERROR] Failed to remove existing output file: {e}")
-                        sys.exit(1)
-                else:
-                    print(f"[WARN] Output file already exists: {current_ffpfs_path}")
-                    try:
-                        if sys.stdin.isatty():
-                            response = input("Overwrite existing file? [y/N]: ").strip().lower()
-                        else:
-                            print("[INFO] Non-interactive shell detected. Skipping overwrite.")
-                            response = 'n'
-                    except (KeyboardInterrupt, EOFError):
-                        print("\n[INFO] Cancelled by user.")
-                        sys.exit(0)
-                    if response not in ('y', 'yes'):
-                        print(f"[INFO] Skipping: {current_ffpfs_path.name}")
-                        continue
-                    try:
-                        current_ffpfs_path.unlink()
-                    except Exception as e:
-                        print(f"[ERROR] Failed to remove existing output file: {e}")
-                        sys.exit(1)
-                
-            if item.is_file() and item.suffix.lower() == '.exfat':
-                # Direct exFAT file to compressed PFS (.ffpfsc) conversion
-                compress_file_to_ffpfsc(item, current_ffpfs_path, mkpfs_cmd_base, mkpfs_cwd)
-            else:
-                # MkPFS 1.1.0 default folder packing creates exactly one outer
-                # compressed PFS container holding an exFAT image. Do not wrap
-                # this result in another PFS: the previous two-pass path produced
-                # ffpfsc -> pfs_image.dat (PFSC) -> game.exfat.
-                if args.keep_pfs:
-                    print("[WARN] --keep-pfs is not applicable to direct exFAT-wrapped packing; no intermediate PFS is created.")
-                print(f"[INFO] Packing folder {item.name} directly to exFAT-wrapped {current_ffpfs_path.name}...")
-                cmd = mkpfs_cmd_base + [
-                    "pack", "folder",
-                    "--version", "PS5",
-                    "--inode-bits", "32",
-                ]
-                if args.verify:
-                    cmd.append("--verify")
-                cmd.extend([str(item), str(current_ffpfs_path)])
-                print(f"[INFO] Running: {' '.join(cmd)}")
-                subprocess.run(cmd, cwd=mkpfs_cwd, check=True)
-                print(f"[OK] Direct exFAT-wrapped container created: {current_ffpfs_path}")
-                    
-        print("\n[SUCCESS] All operations completed successfully!")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

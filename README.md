@@ -1,145 +1,101 @@
-# PS5 FFPFS-CLI
+# PS5 image converter for macOS Intel
 
-A cross-platform CLI and GUI tool to pack and build PS5 homebrew images in the `.ffpfsc` container format for ShadowMountPlus (SMP).
+A Tk/CustomTkinter desktop application targeting macOS Sequoia (15) Intel x86_64.
+**Compatibility tested:** macOS Sequoia on Intel x86_64, with both `.exfat` and
+`.ffpfsc` outputs successfully used on a real PS5 as detailed below.
 
-Rather than using complex, platform-dependent exFAT loopback mounts, this tool creates a standard **uncompressed PFS image (`pfs_image.dat`)** and packs it inside a **compressed PFS container (`.ffpfsc`)**, which is the recommended layout for nested images in ShadowMountPlus.
+Builds run in GitHub Actions on `macos-15-intel`, not on your computer.
 
-## Features
+Choose the output format in the GUI:
 
-- **Pure Python & Cross-Platform**: Runs natively on macOS, Linux, and Windows with **zero** OS-specific dependencies.
-- **No Admin/Root Privileges Required**: Since it doesn't need to mount loopback disks or format drives, it runs completely in userland.
-- **Smart Folder Discovery**: You don't need to pass the exact game root. The tool recursively scans the provided directory for the actual game folder (containing `eboot.bin` and `sce_sys/param.json`).
-- **Title ID Auto-Naming**: Automatically parses `sce_sys/param.json` to extract the game's actual Title ID (e.g., `PPSA01411`) and names output files accordingly.
-- **Archive Support**: Directly process **ZIP** and **RAR** archives (including password-protected) without manual extraction. Uses a built-in, self-contained UnRAR C++ extension — no external `unrar` or `7-Zip` binaries required.
-- **Batch Processing**: Process an entire directory of multiple games, archives, and `.exfat` files into separate images automatically using the `--batch` flag.
-- **GUI Mode**: Launch a graphical user interface with `--gui` for a point-and-click workflow.
-- **Auto-Cleanup**: Automatically cleans up intermediate nested PFS files, keeping only the final compressed `.ffpfsc` file.
+- **exfat**: raw, uncompressed exFAT with 64 KiB clusters and game files at its root.
+- **ffpfsc**: one unsigned PS5 PFS container with one PFSC-compressed `<titleId>.exfat` file. The inner exFAT contains the game files at its root.
 
-## Download Prebuilt Binaries
+Expected compressed layout:
 
-Prebuilt standalone binaries are available on the [Releases](https://github.com/bizkut/ps5-ffpfs-cli/releases) page. No Python installation required.
-
-| Platform | Download |
-|----------|----------|
-| Windows (x64) | `PS5-FFPFS-CLI-Windows-x64.exe` |
-| macOS (universal) | `PS5-FFPFS-CLI-macOS-universal.zip` |
-| Linux (x64) | `PS5-FFPFS-CLI-Linux-x64.AppImage` |
-
-## Requirements (Source Install)
-
-- Python 3.8+
-- A C++ compiler (only needed to build the built-in `unrar` extension from source)
-
-## Installation (Source)
-
-```bash
-git clone https://github.com/bizkut/ps5-ffpfs-cli.git
-cd ps5-ffpfs-cli
-pip install -e ./unrar
+```text
+PPSA00001.ffpfsc (PFS)
+└── PPSA00001.exfat (PFSC-compressed payload; actual exFAT signature)
+    ├── eboot.bin
+    └── sce_sys/param.json
 ```
 
-> The `unrar` directory contains a self-contained C++ extension for RAR extraction. It will be built automatically during `pip install`.
+The GUI and CLI use the same converter. No `pfs_image.dat` intermediate, no second
+PFS wrapper, no raw game files at the outer PFS root. Structural verification is
+mandatory. Full extraction and SHA-256 comparison are enabled by default; keep
+"Extract and compare SHA-256" selected for validated output. A sibling
+`.validation.json` report records the format, checks and per-file hashes.
 
-## CLI Usage
+## Download and run
 
-```bash
-python3 cli.py [game_folder_or_archive_or_exfat] [output] [options]
-```
+Download `PS5-FFPFS-CLI-macOS-Intel.zip` from the
+[stable releases](https://github.com/DeJoTaDeEmE/ps5-ffpfs-cli/releases/latest), extract it,
+and open `PS5-FFPFS-CLI.app`. Actions also provides the application ZIP, its SHA-256,
+and `validation-evidence.zip`. The application is ad-hoc signed, not notarized;
+macOS may require approval in System Settings → Privacy & Security after the
+first launch attempt. No Python installation is needed for the bundled app.
 
-### Options
+Select a game folder containing `eboot.bin` and `sce_sys/param.json`, an existing
+64 KiB-cluster `.exfat`, or a ZIP/RAR containing such a folder. Select an output
+directory outside the source, choose the format, and click the build button.
+Existing output is replaced only after the new staged image passes validation.
+Original folders/images are never deleted. Symbolic links are rejected. MkPFS's
+automatic AMPR source rewriting is disabled.
 
-| Flag | Description |
-|------|-------------|
-| `--keep-pfs` | Keep the intermediate nested PFS image (`<title_id>_nested_pfs.dat`) |
-| `--batch` | Process multiple inputs into multiple outputs. `output` is treated as a directory. |
-| `--gui` | Launch the graphical user interface |
-| `-f`, `--force`, `--overwrite` | Overwrite existing files without prompting |
-| `--password PASSWORD` | Password for ZIP/RAR archives |
-| `--temp-dir DIR` | Custom directory for temporary PFS images (defaults to system temp) |
+Full validation temporarily extracts all game files. Allow space for the staged
+image and extracted contents; converting existing exFAT also extracts the source
+for comparison. Choose a temporary directory with enough free space. Hashing
+large games takes time. Disabling full verification checks structure but does
+not prove file contents match. Cancellation preserves the old destination.
 
-### Examples
+## Source usage
 
-**Standard Process (Game Folder → .ffpfsc):**
-```bash
-python3 cli.py /path/to/GameFolder
-```
-
-**Process a Password-Protected RAR Archive:**
-```bash
-python3 cli.py /path/to/Game.rar --password DLPSGAME.COM
-```
-
-**Process a ZIP Archive:**
-```bash
-python3 cli.py /path/to/Game.zip
-```
-
-**Convert Existing exFAT (exFAT → .ffpfsc):**
-```bash
-python3 cli.py /path/to/GameImage.exfat
-```
-
-**Batch Processing:**
-```bash
-python3 cli.py /path/to/AllGames /path/to/OutputFolder --batch
-```
-
-**Keep Intermediate Files:**
-```bash
-python3 cli.py /path/to/GameFolder --keep-pfs
-```
-
-**Custom Temp Directory (useful for large games on SSDs):**
-```bash
-python3 cli.py /path/to/GameFolder --temp-dir /fast/ssd/tmp
-```
-
-**Launch GUI:**
-```bash
-python3 cli.py --gui
-```
-
-## GUI Usage
-
-Launch the GUI either by running the standalone executable (no terminal needed) or from the command line:
+Python 3.11; dependencies and upstream revision are pinned in `requirements.txt`.
+Installing the optional RAR extension requires a compiler; all application build
+and test commands for this delivery run on Actions.
 
 ```bash
-python3 gui.py
+python -m pip install -r requirements.txt
+python -m pip install ./unrar
+python cli.py /path/Game /path/output/PPSA00001.ffpfsc --format ffpfsc
+python cli.py /path/Game /path/output/PPSA00001.exfat --format exfat
+python cli.py /path/Games /path/output --batch
+python cli.py --gui
 ```
 
-The GUI supports:
-- Selecting source folders, archives, or `.exfat` files via a file picker
-- Password input for protected archives
-- Batch folder selection
-- Output directory selection
-- **Temp directory selection** for intermediate PFS images (useful when processing large games on SSDs)
-- Progress feedback during packing
+`--verify` is the default. `--no-verify` skips extraction/hashes, `--overwrite`
+replaces an existing validated output, `--temp-dir` selects validation scratch
+space, and `--password` supplies an archive password. `--keep-pfs` was removed
+because this conversion creates no nested PFS intermediate.
 
-## Building from Source
+## Confirmed real PS5 validation
 
-### Build Standalone Executable (via PyInstaller)
+The repository owner confirmed successful real-hardware testing on **PS5 firmware
+13.40 with kstuff + ShadowMountPlus**, using images generated by the macOS Intel
+application:
 
-```bash
-pip install pyinstaller
-pyinstaller --name PS5-FFPFS-CLI --onefile --windowed \
-  --hidden-import tkinter --hidden-import mkpfs.cli --hidden-import multiprocessing \
-  --hidden-import unrar --hidden-import unrar.rarfile --hidden-import unrar._unrar \
-  --collect-data tkinter --collect-binaries tkinter \
-  --collect-data customtkinter --collect-data mkpfs --collect-binaries mkpfs \
-  gui.py
-```
+| Game tested | Version | Output | Detected | Mounted | Launches and works |
+| --- | --- | --- | --- | --- | --- |
+| PPSA28002 — Ninja Gaiden: Ragebound | 01.006 | `.exfat` | Yes | Yes | Yes |
+| PPSA28002 — Ninja Gaiden: Ragebound | 01.006 | `.ffpfsc` | Yes | Yes | Yes |
 
-> **Note for RAR support in frozen builds:** The `unrar` C extension must be placed in the `unrar/` package directory within the bundle so `import unrar._unrar` can locate it. If PyInstaller fails to collect it automatically, copy `_unrar*.so` (or `_unrar*.pyd` on Windows) into the `unrar/` source directory before building.
+This confirms both conversion formats for **this game and this firmware setup**.
+It does **not guarantee compatibility with all games, firmware versions, kstuff
+versions or ShadowMountPlus versions**. Exact kstuff/SMP versions were not supplied
+with the report. ShadowMountPlus still documents PFS support as experimental.
 
-## Known Issues & Troubleshooting
+The stable release adds a custom **exFAT + PFS** macOS icon while preserving the
+hardware-tested conversion engine. The icon includes standard and Retina sizes
+from 16 to 1024 pixels in `assets/PS5-FFPFS-CLI.icns`; the generic Python icon is
+replaced in the application bundle. No Apple Silicon build is claimed.
 
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| **"No module named '_unrar'" in frozen build** | PyInstaller places the C extension at the bundle root instead of inside `unrar/` | Ensure the `.so`/`.pyd` is in `unrar/` before building, or use the `.spec` file provided in the repo |
-| **GUI spawns multiple instances during compression (macOS/Windows)** | `multiprocessing.Pool` workers re-run the entry point | Fixed in v1.1.5+ — `multiprocessing.freeze_support()` is called at module level |
-| **Console windows flicker on Windows during compression** | Subprocess spawns visible console | Fixed in v1.1.5+ — subprocesses use `CREATE_NO_WINDOW` flag in frozen mode |
-| **Cancel button does nothing in frozen build** | Direct-call path bypassed subprocess termination | Fixed in v1.1.5+ — restored subprocess path with headless env so `terminate()` works |
+Automated tests remain enabled: a reproducible synthetic fixture validates image
+structure, compression, extraction, SHA-256 identity and rejection of double
+wrapping. It is not a playable game and is separate from the owner's real PS5
+report. `ps5_hardware_tested: false` in a generated image's validation report means
+that **that individual image** has not undergone an automated hardware test; it
+does not negate the documented successful test of PPSA28002.
 
-## License
-
-MIT License. The built-in UnRAR extension is based on the RARLAB UnRAR source (freeware license for extraction-only use).
+References: [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) and
+[drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus).
+See [VALIDATION.md](VALIDATION.md) for the audit, reproduction and test evidence.

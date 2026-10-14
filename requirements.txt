@@ -1,0 +1,7 @@
+# Audited upstream revision; do not substitute another 1.1.0 build silently.
+mkpfs @ git+https://github.com/PSBrew/MkPFS.git@1d5df56ae29390900e888fa12e5f9856aa797adc
+cryptography==47.0.0
+customtkinter==5.2.2
+Pillow==11.3.0
+zlib-ng==1.0.0
+isal==1.8.0

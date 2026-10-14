@@ -26,6 +26,8 @@ import threading
 import subprocess
 import shutil
 import tempfile
+import signal
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -36,6 +38,7 @@ except ImportError:
     raise ImportError("GUI requires 'customtkinter'. Install it via: pip install customtkinter")
 
 import cli
+from runtime_log import RunLog, ExitGuard
 
 PROGRESS_LINE_RE: re.Pattern[str] = re.compile(r"\[(?P<bar>[#-]{4,})\]\s*(?P<pct>\d{1,3})%\s*(?P<label>[^\r\n]*)")
 
@@ -111,6 +114,13 @@ class PS5ContainerBuilderApp:
         self.is_closing = False
         self.is_cancelled = False
         self.is_running = False
+        self.run_log = RunLog()
+        self.run_log.enable_faults()
+        self.exit_guard = ExitGuard()
+        self.previous_signals = {}
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            self.previous_signals[signum] = signal.signal(signum, self.exit_guard.receive)
+        self.root.report_callback_exception = self._report_callback_exception
 
         self.log_after_id = None
         self.progress_after_id = None
@@ -121,6 +131,7 @@ class PS5ContainerBuilderApp:
         self._start_log_polling()
         self._start_progress_polling()
         self._start_completion_polling()
+        self.diagnostics_after_id = self.root.after(5000, self._poll_diagnostics)
 
     def _setup_window(self) -> None:
         ctk.set_appearance_mode("dark")
@@ -129,6 +140,25 @@ class PS5ContainerBuilderApp:
         self.root.geometry("900x700")
         self.root.minsize(800, 600)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        if sys.platform == "darwin":
+            self.root.createcommand("tk::mac::Quit", self._on_close)
+
+    def _report_callback_exception(self, exc_type, exc, tb):
+        self.run_log.event("tk_exception", traceback="".join(traceback.format_exception(exc_type, exc, tb)))
+        self.enqueue_log(f"[ERROR] UI error: {exc}\nSee {self.run_log.path}\n", "error")
+
+    def _poll_diagnostics(self):
+        requested = self.exit_guard.pending_signal
+        self.exit_guard.pending_signal = None
+        if requested is not None:
+            self.run_log.event("signal_exit_request", signal=requested, blocked=self.is_running)
+            if not self.is_running:
+                self._on_close()
+                return
+            self.enqueue_log("[WARN] Exit signal blocked while conversion is active.\n")
+        process = self.current_process
+        self.run_log.heartbeat(self.is_running, process.pid if process else None)
+        self.diagnostics_after_id = self.root.after(5000, self._poll_diagnostics)
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -391,6 +421,7 @@ class PS5ContainerBuilderApp:
             self.temp_dir_var.set(path)
 
     def enqueue_log(self, text: str, tag: str = "info") -> None:
+        self.run_log.event("output", tag=tag, text=text)
         for match in PROGRESS_LINE_RE.finditer(text):
             percent = max(0, min(int(match.group("pct")), 100))
             label = match.group("label").strip() or "Processing"
@@ -523,6 +554,10 @@ class PS5ContainerBuilderApp:
                 plain_buf.append(line)
 
         _flush_plain()
+        # The persistent file retains history; the widget must not grow forever.
+        lines_kept = int(self.log_text.index("end-1c").split(".")[0])
+        if lines_kept > 5000:
+            self.log_text.delete("1.0", f"{lines_kept - 5000}.0")
         self.log_text.configure(state="disabled")
         self.log_text.see("end")
 
@@ -532,7 +567,7 @@ class PS5ContainerBuilderApp:
         self.log_text.configure(state="disabled")
 
     def _on_action(self) -> None:
-        if self.is_running:
+        if self.is_running or self.current_process is not None:
             return
 
         self._clear_log()
@@ -549,6 +584,7 @@ class PS5ContainerBuilderApp:
                                   output_format=self.format_var.get(), batch=self.batch_var.get(),
                                   verify=self.verify_var.get(), password=self.password_var.get() or None,
                                   temp_dir=self.temp_dir_var.get().strip() or None)
+        self.run_log.event("conversion_start", settings={k: v for k, v in self.pack_settings.items() if k != "password"})
         self.worker_thread = threading.Thread(target=self._run_pack_worker, daemon=True)
         self.worker_thread.start()
 
@@ -561,11 +597,14 @@ class PS5ContainerBuilderApp:
 
         try:
             is_success = self._do_pack_work()
-        except Exception as e:
+        except BaseException as e:
+            self.run_log.event("worker_exception", traceback=traceback.format_exc())
             print(f"[ERROR] Unhandled exception in worker: {e}")
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            self.run_log.event("conversion_end", success=is_success and not self.is_cancelled,
+                               cancelled=self.is_cancelled)
             try:
                 self.completion_queue.put_nowait(("Pack Process", is_success and not self.is_cancelled))
             except queue.Full:
@@ -589,11 +628,13 @@ class PS5ContainerBuilderApp:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                errors="replace",
                 bufsize=1,
                 cwd=cwd,
                 env=env,
                 **popen_kwargs,
             )
+            self.run_log.event("child_start", pid=self.current_process.pid, command=cmd, cwd=cwd)
 
             # Use readline()-based iteration; read_stream_by_lines already
             # uses readline() internally and handles \r deduplication.
@@ -601,19 +642,37 @@ class PS5ContainerBuilderApp:
                 print(line)
 
             code = self.current_process.wait()
+            self.current_process.stdout.close()
+            self.run_log.event("child_exit", pid=self.current_process.pid, returncode=code,
+                               signal=-code if code < 0 else None)
+            if code != 0:
+                print(f"[ERROR] MkPFS exited with code {code}; signal {-code if code < 0 else 'none'}")
             self.current_process = None
             return code == 0
         except Exception as e:
+            self.run_log.event("subprocess_exception", traceback=traceback.format_exc())
             print(f"[ERROR] Subprocess execution failed: {e}")
-            self.current_process = None
+            if self.current_process is not None and self.current_process.poll() is not None:
+                self.run_log.event("child_exit", pid=self.current_process.pid,
+                                   returncode=self.current_process.returncode)
+                if self.current_process.stdout:
+                    self.current_process.stdout.close()
+                self.current_process = None
             return False
 
     def _on_cancel(self) -> None:
+        if not (self.is_running or self.current_process is not None) or not messagebox.askyesno(
+                "Cancel conversion?", "Stop the active conversion? Unvalidated temporary output will be removed."):
+            return
+        self.run_log.event("cancel_confirmed")
         self.is_cancelled = True
         self.progress_label.configure(text="Cancelling...")
         if self.current_process:
             print("\n[WARN] Cancelling... terminating subprocess.\n")
-            self.current_process.terminate()
+            try:
+                self.current_process.terminate()
+            except ProcessLookupError:
+                pass
         self.cancel_btn.configure(state="disabled")
 
     def ask_overwrite_confirmation(self, path: Path) -> bool:
@@ -640,7 +699,7 @@ class PS5ContainerBuilderApp:
         self.progress_var.set(1.0)
         self.is_running = False
         self.action_btn.configure(state="normal")
-        self.cancel_btn.configure(state="disabled")
+        self.cancel_btn.configure(state="normal" if self.current_process is not None else "disabled")
         self.worker_thread = None
 
         if self.is_cancelled:
@@ -654,19 +713,23 @@ class PS5ContainerBuilderApp:
             messagebox.showerror("Error", "Operation finished with errors.\nCheck the log console for details.")
 
     def _on_close(self) -> None:
+        if self.is_running:
+            self.run_log.event("close_blocked")
+            messagebox.showinfo("Conversion active", "The application will remain open until conversion finishes.\nUse Cancel and confirm if you want to stop it.")
+            return
+        if self.current_process is not None or (self.worker_thread and self.worker_thread.is_alive()):
+            self.run_log.event("close_blocked", reason="worker still active")
+            return
         self.is_closing = True
-        self.is_cancelled = True
-        if self.current_process:
-            try:
-                self.current_process.terminate()
-            except Exception:
-                pass
-        for after_id in (self.log_after_id, self.progress_after_id, self.completion_after_id):
+        for after_id in (self.log_after_id, self.progress_after_id, self.completion_after_id, self.diagnostics_after_id):
             if after_id is not None:
                 try:
                     self.root.after_cancel(after_id)
                 except Exception:
                     pass
+        for signum, handler in self.previous_signals.items():
+            signal.signal(signum, handler)
+        self.run_log.close()
         self.root.destroy()
 
 def gui_test(source, output, output_format):

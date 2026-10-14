@@ -83,3 +83,10 @@ launch, firmware compatibility and real-game performance remain unverified.
 Unsigned/ad-hoc macOS signing is not Apple notarization. No Apple Silicon support
 is claimed. The references describe PFS as experimental, and older documentation
 examples must not be applied without checking current MkPFS default behavior.
+
+## Actions environment correction
+
+Initial run `38607403295` failed in setup-python, before compilation/tests: Python
+3.11.14 x64 is absent from the official Actions python-versions manifest. The
+workflow now pins 3.11.9, the latest available 3.11 macOS x64 distribution in
+that manifest. No older application or MkPFS source was substituted.

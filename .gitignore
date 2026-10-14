@@ -32,3 +32,7 @@ test_data/
 # Local project tracking (not for sharing)
 RECOVERY.md
 PLAN.md
+
+# Generated licensing/release materials
+release-materials/
+PS5-FFPFS-CLI-Source.tar.gz

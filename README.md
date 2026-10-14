@@ -135,3 +135,18 @@ does not negate the documented successful test of PPSA28002.
 References: [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) and
 [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus).
 See [VALIDATION.md](VALIDATION.md) for the audit, reproduction and test evidence.
+
+## Credits and licenses / Créditos y licencias
+
+This is a maintained fork of [bizkut/ps5-ffpfs-cli](https://github.com/bizkut/ps5-ffpfs-cli).
+The original project declares MIT for its wrapper; see [LICENSE](LICENSE).
+MkPFS is GPL-3.0; the combined binary is not covered by a blanket MIT grant.
+All authors, runtime/build projects and component-specific terms are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with full texts in [licenses/](licenses/).
+ShadowMountPlus and kstuff are credited as separate console tools, not bundled payloads.
+
+Este proyecto deriva de **bizkut/ps5-ffpfs-cli**. Se conserva la declaración MIT
+del envoltorio original y se reconocen por separado la GPL de MkPFS y las licencias
+de cada dependencia. Los créditos y los avisos completos están enlazados arriba.
+La revisión ha identificado una cuestión pendiente entre UnRAR y la GPL de MkPFS:
+añadir créditos no sustituye resolverla antes de la siguiente publicación estable.

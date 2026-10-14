@@ -59,3 +59,51 @@ until a compatible exception or another licensing resolution is confirmed.
 
 The owner's choice is pending. No new stable binary has been published or claimed
 license-complete. Existing release assets have not been changed or deleted.
+
+## UnRAR redistribution recheck (14 October 2026)
+
+The official version-matched source archive was downloaded again with TLS
+verification:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://www.rarlab.com/rar/unrarsrc-7.2.1.tar.gz \
+  -o /tmp/ps5-unrar-redistribution-audit.tar.gz
+tar -xOf /tmp/ps5-unrar-redistribution-audit.tar.gz unrar/license.txt
+```
+
+Its license matches the restored notice: redistribution, including inside other
+packages, is permitted; modified source must retain the specified paragraph in
+the license/documentation and source comments. Recreating RAR-compatible archiving
+or its proprietary compression algorithm is prohibited. The relevant terms are
+the UnRAR source license, not the paid WinRAR application's general EULA.
+See [RARLAB's official source downloads](https://www.rarlab.com/rar_add.htm).
+
+The current workflow builds `unrar._unrar` from the vendored C++ sources and
+collects it into the same frozen application as MkPFS. Treating this as mere
+aggregation has not been justified. According to
+[GNU's guidance](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation),
+the communication and actual integration matter; putting a component in a
+separate file alone does not establish independence. The compatibility concern
+is an assessment of this integration, not a claim that RARLAB prohibits all
+redistribution.
+
+Options for the owner, with none selected or implemented yet:
+
+1. **Publish without bundled UnRAR (recommended):** retain the proven folder,
+   ZIP, exFAT and FFPFSC engine; users extract RAR archives before conversion.
+   Packaging and documentation must accurately reflect this limitation.
+2. **Retain the current integrated UnRAR:** defer the new public binary until
+   the relevant rights holders provide an applicable exception or another
+   licensing resolution is established. Source publication and credits alone
+   do not remove conflicting conditions.
+3. **Investigate an independent external extractor:** a separately installed
+   command-line tool exchanging ordinary files may allow a different licensing
+   analysis. This needs an actual separation review and new extraction tests;
+   it is not an automatic workaround and is outside the priority release scope.
+
+No Finder, Dock, Launchpad or System Events automation is part of this review.
+The owner's running application and Astro Bot conversion are left untouched.
+Launchpad verification is no longer a release task requested by the owner;
+the existing Finder and Dock checks are accepted. Stable publication remains
+pending the owner's explicit authorization and UnRAR choice.
